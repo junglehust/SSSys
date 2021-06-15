@@ -1,0 +1,19 @@
+client:cn
+server:dn
+三部分：
+    1.cn与dn节点之间的通信(全部由cn发起)：    
+        read： rpc + write_with_imm(dn)
+        write: rpc + write_with_imm(cn) + sync with IS(regularly)
+    2.与元数据服务器的通信：
+        cn: rpc when local metadata cache miss(可以使用hybrid is better中的混合模式)
+        dn: rpc when need sync(read after write / work queue empty)
+    3.IS节点对元数据的处理:
+        ?
+    阶段一：实现各节点间的互通信（数据随便 通信模式对了就行）
+    阶段二：在元数据服务器上实现HiKV-like的索引结构
+    阶段三：在DN上实现文件在SmartNIC上的索引缓存（PM上保存持久化的索引 NIC缓存）以及MVCC模式，实现原型系统
+    阶段四：在原型系统基础上进一步完善
+
+    本周的想法：把通信的内容由disk文件改成pm文件，更改通信原语为需要的
+
+    ps：pmem_map_file是dax并不走mmap 实际上是把pm直接作为用户内存空间

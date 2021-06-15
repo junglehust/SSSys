@@ -18,7 +18,7 @@ struct conn_context
   char file_name[MAX_FILE_NAME];
 };
 
-//  使用SEND/RECV方式传输控制信息
+  //使用send的方式将元数据同步到IS
 static void send_message(struct rdma_cm_id *id)
 {
   struct conn_context *ctx = (struct conn_context *)id->context;
@@ -37,6 +37,59 @@ static void send_message(struct rdma_cm_id *id)
   sge.addr = (uintptr_t)ctx->msg;
   sge.length = sizeof(*ctx->msg);
   sge.lkey = ctx->msg_mr->lkey;
+
+  TEST_NZ(ibv_post_send(id->qp, &wr, &bad_wr));
+}
+//使用write的方式将需要的数据写到CN
+static void write_remote(struct rdma_cm_id *id, uint32_t len)
+{
+  struct conn_context *ctx = (struct conn_context *)id->context;
+
+  struct ibv_send_wr wr, *bad_wr = NULL;
+  struct ibv_sge sge;
+
+  memset(&wr, 0, sizeof(wr));
+
+  wr.wr_id = (uintptr_t)id;
+  wr.opcode = IBV_WR_RDMA_WRITE;//使用write with imm传输数据
+  wr.send_flags = IBV_SEND_SIGNALED;
+  wr.sg_list = &sge;
+  wr.num_sge = 1;
+  wr.send_flags = IBV_SEND_SIGNALED;
+  wr.wr.rdma.remote_addr = ctx->peer_addr;
+  wr.wr.rdma.rkey = ctx->peer_rkey;
+
+  sge.addr = (uintptr_t)ctx->buffer;
+  sge.length = len;
+  sge.lkey = ctx->buffer_mr->lkey
+
+  TEST_NZ(ibv_post_send(id->qp, &wr, &bad_wr));
+}
+//使用write imm的方式将需要的数据写到并通知CN
+static void write_imm_remote(struct rdma_cm_id *id, uint32_t len)
+{
+  struct conn_context *ctx = (struct conn_context *)id->context;
+
+  struct ibv_send_wr wr, *bad_wr = NULL;
+  struct ibv_sge sge;
+
+  memset(&wr, 0, sizeof(wr));
+
+  wr.wr_id = (uintptr_t)id;
+  wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;//使用write with imm传输数据
+  wr.send_flags = IBV_SEND_SIGNALED;
+  wr.imm_data = htonl(len);//imm 带了数据长度
+  wr.wr.rdma.remote_addr = ctx->peer_addr;
+  wr.wr.rdma.rkey = ctx->peer_rkey;
+
+  if (len) {
+    wr.sg_list = &sge;
+    wr.num_sge = 1;
+
+    sge.addr = (uintptr_t)ctx->buffer;
+    sge.length = len;
+    sge.lkey = ctx->buffer_mr->lkey;
+  }
 
   TEST_NZ(ibv_post_send(id->qp, &wr, &bad_wr));
 }
@@ -89,7 +142,13 @@ static void on_completion(struct ibv_wc *wc)
   struct rdma_cm_id *id = (struct rdma_cm_id *)(uintptr_t)wc->wr_id;
   struct conn_context *ctx = (struct conn_context *)id->context;
 
-  if (wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM){
+
+  if(wc->opcode == IBV_WC_RECV){
+    
+  }
+
+  //接收到CN的写完毕
+  if(wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM){
     uint32_t size = ntohl(wc->imm_data);
 
     if (size == 0) {

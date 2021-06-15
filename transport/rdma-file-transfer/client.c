@@ -19,11 +19,40 @@ struct client_context
   const char *file_name;
 };
 
-static void send_request(struct rdma_cm_id *id, uint32_t len){
-  
+static void send_request(struct rdma_cm_id *id, uint32_t len,int mode){
+    struct client_context *ctx = (struct client_context *)id->context;
+
+    strcpy(ctx->buffer, ctx->file_name);
+
+    
 }
 
 static void write_remote(struct rdma_cm_id *id, uint32_t len)
+{
+  struct client_context *ctx = (struct client_context *)id->context;
+
+  struct ibv_send_wr wr, *bad_wr = NULL;
+  struct ibv_sge sge;
+
+  memset(&wr, 0, sizeof(wr));
+
+  wr.wr_id = (uintptr_t)id;
+  wr.opcode = IBV_WR_RDMA_WRITE;//使用write with imm传输数据
+  wr.send_flags = IBV_SEND_SIGNALED;
+  wr.sg_list = &sge;
+  wr.num_sge = 1;
+  wr.send_flags = IBV_SEND_SIGNALED;
+  wr.wr.rdma.remote_addr = ctx->peer_addr;
+  wr.wr.rdma.rkey = ctx->peer_rkey;
+
+  sge.addr = (uintptr_t)ctx->buffer;
+  sge.length = len;
+  sge.lkey = ctx->buffer_mr->lkey
+
+  TEST_NZ(ibv_post_send(id->qp, &wr, &bad_wr));
+}
+
+static void write_imm_remote(struct rdma_cm_id *id, uint32_t len)
 {
   struct client_context *ctx = (struct client_context *)id->context;
 
@@ -71,28 +100,19 @@ static void post_receive(struct rdma_cm_id *id)
   TEST_NZ(ibv_post_recv(id->qp, &wr, &bad_wr));
 }
 
-static void send_next_chunk(struct rdma_cm_id *id)
+static void send_next_chunk(struct rdma_cm_id *id)//不确定需不需要分片
 {
   struct client_context *ctx = (struct client_context *)id->context;
 
   ssize_t size = 0;
 
-  //改成持久化的读取
+  //可以增加一条走PM的路径
   size = read(ctx->fd, ctx->buffer, BUFFER_SIZE);
 
   if (size == -1)
     rc_die("read() failed\n");
 
   write_remote(id, size);
-}
-
-static void send_file_name(struct rdma_cm_id *id)
-{
-  struct client_context *ctx = (struct client_context *)id->context;
-
-  strcpy(ctx->buffer, ctx->file_name);
-
-  write_remote(id, strlen(ctx->file_name) + 1);
 }
 
 static void on_pre_conn(struct rdma_cm_id *id)
@@ -120,7 +140,7 @@ static void on_completion(struct ibv_wc *wc)
       ctx->peer_rkey = ctx->msg->data.mr.rkey;
 
       printf("received MR, sending file name\n");
-      send_file_name(id);
+      send_request(id);//要改
     }
     else if (ctx->msg->id == MSG_READY){
       printf("received READY, sending chunk\n");
